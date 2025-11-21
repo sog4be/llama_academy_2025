@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { callLLMWithFallback } from "@/lib/llm-client";
 
 const SYSTEM_PROMPT = `あなたはPythonプログラミング学習をサポートするAIアシスタントです。
 
@@ -32,40 +33,32 @@ ${terminalOutput || "(まだ実行されていません)"}
 この学生に対して、答えを教えずにヒントを提供してください。
 `;
 
-    // SambaNova API呼び出し
-    const response = await fetch("https://api.sambanova.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.SAMBANOVA_API_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "Llama-4-Maverick-17B-128E-Instruct",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userContent }
-        ],
-        stream: false,
-        temperature: 0.7,
-        max_tokens: 500,
-      }),
+    // LLM API呼び出し（SambaNova → Groq フォールバック）
+    const data = await callLLMWithFallback({
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userContent }
+      ],
+      temperature: 0.7,
+      max_tokens: 500,
+      stream: false,
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("SambaNova API error:", errorText);
-      throw new Error(`API request failed: ${response.status}`);
-    }
-
-    const data = await response.json();
     const hint = data.choices[0]?.message?.content || "ヒントを生成できませんでした。";
 
     return NextResponse.json({ hint });
   } catch (error) {
     console.error("Error generating hint:", error);
-    return NextResponse.json(
-      { error: "ヒントの生成中にエラーが発生しました。" },
-      { status: 500 }
-    );
+
+    // 両方のAPIでレート制限に達した場合
+    if (error instanceof Error && error.message === "RATE_LIMIT_BOTH") {
+      return NextResponse.json({
+        hint: "APIの利用制限に達しました。しばらく待ってから再試行してください。",
+      });
+    }
+
+    return NextResponse.json({
+      hint: "ヒントの生成中にエラーが発生しました。時間をおいて再試行してください。",
+    });
   }
 }

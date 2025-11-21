@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Python Coding Learning Tool",
+  title: "Llama Academy",
   description: "大学生向けプログラミング教育支援ツール",
 };
 

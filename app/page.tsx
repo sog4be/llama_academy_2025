@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { ProblemDisplay } from "@/components/problem-display";
 import { SplitLayout } from "@/components/split-layout";
@@ -8,7 +9,7 @@ import { CodeEditor } from "@/components/code-editor";
 import { Terminal, TerminalLine } from "@/components/terminal";
 import { AIChatDialog } from "@/components/ai-chat-dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { MessageCircle, Play, Loader2 } from "lucide-react";
+import { Play, Loader2 } from "lucide-react";
 import { runPythonCode } from "@/lib/pyodide-runner";
 import { problems } from "@/data/problems";
 
@@ -193,14 +194,19 @@ export default function Home() {
 
       {/* 右下: AI相談ボタン（固定位置） */}
       <div className="fixed bottom-8 right-8 z-50">
-        <Button
-          size="lg"
-          className="gap-2 shadow-lg"
+        <button
           onClick={() => setIsAIChatOpen(true)}
+          className="w-20 h-20 rounded-full shadow-lg hover:scale-110 transition-transform cursor-pointer"
+          aria-label="AIに相談"
         >
-          <MessageCircle className="w-5 h-5" />
-          AIに相談
-        </Button>
+          <Image
+            src="/llama_icon.png"
+            alt="AI相談"
+            width={80}
+            height={80}
+            className="rounded-full scale-x-[-1]"
+          />
+        </button>
       </div>
 
       {/* AI相談ダイアログ */}

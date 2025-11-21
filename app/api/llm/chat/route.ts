@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { callLLMWithFallback } from "@/lib/llm-client";
 
 const SYSTEM_PROMPT = `あなたはPythonプログラミング学習をサポートするAIアシスタントです。
 
@@ -22,6 +23,29 @@ export async function POST(request: NextRequest) {
       conversationHistory = []
     } = await request.json();
 
+    // ステップ1: ユーザークエリの適切性をチェック
+    const checkResponse = await fetch(`${request.nextUrl.origin}/api/llm/check-query`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userQuestion }),
+    });
+
+    if (checkResponse.ok) {
+      const checkResult = await checkResponse.json();
+
+      // 不適切な質問と判定された場合
+      if (checkResult.isValid === false) {
+        console.log(`Query blocked: ${userQuestion} | Reason: ${checkResult.reason}`);
+        return NextResponse.json({
+          answer: "その質問には答えられません。質問の内容を見直して再送信してください。",
+        });
+      }
+    } else {
+      // チェックAPIがエラーの場合はログに記録して続行
+      console.warn("Query check API failed, proceeding with the question");
+    }
+
+    // ステップ2: 通常のLLM処理
     // コンテキストの組み立て
     const contextMessage = `
 【問題】
@@ -51,37 +75,29 @@ ${terminalOutput || "(まだ実行されていません)"}
     // ユーザーの質問を追加
     messages.push({ role: "user", content: userQuestion });
 
-    // SambaNova API呼び出し
-    const response = await fetch("https://api.sambanova.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.SAMBANOVA_API_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "Llama-4-Maverick-17B-128E-Instruct",
-        messages,
-        stream: false,
-        temperature: 0.7,
-        max_tokens: 500,
-      }),
+    // LLM API呼び出し（SambaNova → Groq フォールバック）
+    const data = await callLLMWithFallback({
+      messages,
+      temperature: 0.7,
+      max_tokens: 500,
+      stream: false,
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("SambaNova API error:", errorText);
-      throw new Error(`API request failed: ${response.status}`);
-    }
-
-    const data = await response.json();
     const answer = data.choices[0]?.message?.content || "回答を生成できませんでした。";
 
     return NextResponse.json({ answer });
   } catch (error) {
     console.error("Error generating answer:", error);
-    return NextResponse.json(
-      { error: "回答の生成中にエラーが発生しました。" },
-      { status: 500 }
-    );
+
+    // 両方のAPIでレート制限に達した場合
+    if (error instanceof Error && error.message === "RATE_LIMIT_BOTH") {
+      return NextResponse.json({
+        answer: "APIの利用制限に達しました。しばらく待ってから再試行してください。",
+      });
+    }
+
+    return NextResponse.json({
+      answer: "回答の生成中にエラーが発生しました。時間をおいて再試行してください。",
+    });
   }
 }
